@@ -39,6 +39,7 @@ let useremail= ""
 let searchTerm=""
 let searchInterval =0
 let agentOwner = ""
+let pauseAgent= false;
 dotenv.config();
 
 
@@ -204,17 +205,27 @@ async function initializeAgent() {
  * @param interval - Time interval between actions in seconds
  */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-async function runAutonomousMode(agent: any, config: any, interval = 60*searchInterval) {
+async function runAutonomousMode(agent: any, config: any) {
   console.log("Starting autonomous mode...");
-
+  
   // eslint-disable-next-line no-constant-condition
   while (true) {
     try {
-      const thought =
-       searchTerm;
+      await getSearchParams()
+      let interval = 60*searchInterval
+        
+      const thought = "Search freelancer for jobs fitting the following description. ".concat(searchTerm);
+       
+       if(pauseAgent) //Don't execute agent commands if paused
+       {
+        await new Promise(resolve => setTimeout(resolve, interval * 1000));
+        continue
+
+       }
+         
 
       const stream = await agent.stream({ messages: [new HumanMessage(thought)] }, config);
-
+  
       for await (const chunk of stream) {
         if ("agent" in chunk) {
           const _data =chunk.agent.messages[0].content 
@@ -254,26 +265,28 @@ async function runAutonomousMode(agent: any, config: any, interval = 60*searchIn
   }
 }
 
+async function getSearchParams() {
+  if (!process.env.AGENT_OWNER) {
+    throw new Error("AGENT_OWNER is not set in environment variables.");
+  }
 
+  agentOwner = process.env.AGENT_OWNER
+  const profile =  await db.collection("profile").doc(agentOwner).get()
+  useremail = profile?.data()?.email
+  console.log(profile)
+  const search =  await db.collection("search").doc(agentOwner).get()
+ console.log(profile)
+  searchInterval = search?.data()?.interval
+  searchTerm  = search?.data()?.terms
+  pauseAgent = search?.data()?.paused
+
+}
 /**
  * Start the chatbot agent
  */
 async function main() {
   try {
     
-    if (!process.env.AGENT_OWNER) {
-      throw new Error("AGENT_OWNER is not set in environment variables.");
-    }
-
-    agentOwner = process.env.AGENT_OWNER
-    const profile =  await db.collection("profile").doc(agentOwner).get()
-    useremail = profile?.data()?.email
-    console.log(profile)
-    const search =  await db.collection("search").doc(agentOwner).get()
-   console.log(profile)
-    searchInterval = search?.data()?.interval
-    searchTerm  = search?.data()?.terms
-
     const { agent, config } = await initializeAgent();
     await runAutonomousMode(agent, config);
     
